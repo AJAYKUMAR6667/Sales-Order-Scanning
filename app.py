@@ -86,8 +86,10 @@ class OfferFormSchema(BaseModel):
 @app.post("/extract")
 async def extract_invoice(
     file: UploadFile = File(...),
-    doc_type: str = Form(...)  # Expected values: 'tax_invoice', 'packing_slip', 'offer_form'
+    doc_type: str = None  # Changed from Form(...) to a clean Query parameter
 ):
+    if not doc_type:
+        raise HTTPException(status_code=400, detail="Missing doc_type query parameter.")
     # Dynamic schema selection matching the requested format blueprint
     if doc_type == "tax_invoice":
         selected_schema = TaxInvoiceSchema.model_json_schema()
