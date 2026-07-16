@@ -13,6 +13,18 @@ client = LlamaCloud(api_key="llx-knaUlGzQqxYtuAe9FnOO2YrMrjP2GXvmVycN5dQOtTA49XM
 # SECTION 1: NEW DATA SCHEMAS (Transport Slips / Lorry Receipts)
 # ==============================================================================
 
+class FreightChargesSchema(BaseModel):
+    # Defining explicit fields matches both Batcotrans and Nagpur Golden layouts
+    freight: Optional[float] = Field(default=0.0, description="Freight charge value")
+    bc: Optional[float] = Field(default=0.0, description="BC / Booking charge value")
+    handling: Optional[float] = Field(default=0.0, description="Handling or loading charge value")
+    door_del: Optional[float] = Field(default=0.0, description="Door delivery charge value")
+    lf: Optional[float] = Field(default=0.0, description="LF / Lorry Freight charge value")
+    sc: Optional[float] = Field(default=0.0, description="SC / Statistical charge value")
+    lc: Optional[float] = Field(default=0.0, description="LC / Labor charge value")
+    grc: Optional[float] = Field(default=0.0, description="GRC / Goods Receipt charge value")
+    other: Optional[float] = Field(default=0.0, description="Any other miscellaneous charges listed")
+
 class TransportLineItem(BaseModel):
     sl_no: Optional[int] = Field(default=None, description="Serial number of the item")
     quantity: Optional[str] = Field(default=None, description="Quantity or primary count packed (e.g., 01, 1)")
@@ -38,7 +50,10 @@ class TransportSlipSchema(BaseModel):
     line_items: List[TransportLineItem]
     total_packages_count: Optional[str] = Field(default=None, description="Summary packages line label string")
     net_weight: Optional[float] = Field(default=None, description="Aggregated structural net weight value")
-    freight_charges: Optional[Dict[str, float]] = Field(default=None, description="Dictionary mapping broken-down logistical charges (e.g., freight, handling, sc, lc)")
+    
+    # FIX: Replaced Dict[str, float] with explicit sub-schema model validation
+    freight_charges: Optional[FreightChargesSchema] = Field(default=None, description="Broken-down logistical charges mapped out perfectly")
+    
     total_amount: float = Field(description="Final summary evaluation balance payable")
     handwritten_notes: Optional[List[str]] = Field(default=None, description="Any unmapped structural text or notes captured anywhere on the slip")
 
