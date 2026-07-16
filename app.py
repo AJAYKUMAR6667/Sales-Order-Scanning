@@ -18,7 +18,7 @@ class InvoiceLineItem(BaseModel):
     dc_no: Optional[str] = Field(default=None, description="Challan or DC number if present in table")
     description: str = Field(description="Full name, grade, or count description of goods (e.g., 30 X 60 NICE, 10S COTTON CONE YARN)")
     hsn_sac: Optional[str] = Field(default=None, description="HSN or SAC code string")
-    pcs: Optional[int] = Field(default=None, description="Quantity in Pieces (Pcs) if applicable or quantity in KGs")
+    pcs: Optional[int] = Field(default=None, description="Quantity in Pieces (Pcs) if applicable or quantity in KGs or if it is in ()")
     meters: Optional[float] = Field(default=None, description="Quantity in Meters if applicable")
     weight_kg: Optional[float] = Field(default=None, description="Quantity in Kilograms (KG) if applicable")
     rate: float = Field(description="Rate per unit")
