@@ -122,37 +122,42 @@ class PackingSlipSchema(BaseModel):
 class OfferLineItem(BaseModel):
     description: str = Field(
         description=(
-            "From column 1 ('Quality / Sort No.'). "
+            "From the main item column (e.g., 'Particulars', 'Description of Goods', 'Quality / Sort No.'). "
             "CRITICAL: Resolve ditto marks ('\"', '“', ',,') by inheriting the main parent name "
             "from the line above while preserving row-specific modifiers. "
-            "Examples: 'Blue Star (c)', 'Blue Star (w) print', 'Blue Star (c) print', 'Diamond col'."
+            "Strip out the dimension if it is written inline as part of the description string "
+            "(e.g., convert 'Kingfisher 30x60' to just 'Kingfisher' or '30/60 Diamond' to 'Diamond')."
         )
     )
     dimension: Optional[str] = Field(
         default=None, 
         description=(
-            "From column 2 ('Width Size'). Standardize the handwritten '3060' and its "
-            "subsequent ditto marks ('\"') to '30x60'."
+            "The product size configuration. CRITICAL: Standardize any variation of dimensions "
+            "found in the document—whether written as '3060', '30..60', '30.60', '30/60', or '30x60'—to "
+            "always be formatted exactly as '30x60' (or its respective mapped size like '36x72'). "
+            "If the dimension is written inline inside the description column next to the product name "
+            "instead of a dedicated size column, extract it here, resolve any subsequent ditto marks, "
+            "and format it cleanly with an 'x'."
         )
     )
     quantity_bales: Optional[str] = Field(
         default="", 
-        description="From the 'Delivery' column if it specifies global packaging units like '1 Bale'."
+        description="From the 'Delivery' or macro packaging fields if it specifies units like '1 Bale'."
     )
     quantity_pieces_meters: Optional[str] = Field(
         default=None,
         description=(
-            "From column 3 ('Qnty Pcs.Mtr'). Read the text carefully as dozen ('dz' or 'doz'), "
-            "NOT as 'd2'. Examples: '10 dz', '5 dz'."
+            "From the localized count column. Read the text carefully as dozen ('dz', 'doz', or 'd.'), "
+            "NOT as 'd2'. Examples: '10 dz', '5 d.', '5 Dozen'."
         )
     )
-    rate_rs: Optional[float] = Field(default=None, description="From column 4 ('Rate Pcr/Mtrs/Pcs'). Leave null if blank.")
-    rate_p: Optional[float] = Field(default=0.0, description="From column 4 paisa fraction. Leave 0.0 if blank.")
+    rate_rs: Optional[float] = Field(default=None, description="From the base Rate column. Leave null if blank.")
+    rate_p: Optional[float] = Field(default=0.0, description="From the rate fraction/paisa. Leave 0.0 if blank.")
 
     @model_validator(mode="after")
     def check_must_have_metrics(self) -> "OfferLineItem":
         """Ensures that rows acting purely as section text/notes are not grabbed as items."""
-        if not self.quantity_pieces_meters and self.rate_rs is None:
+        if not self.quantity_pieces_meters and not self.quantity_bales and self.rate_rs is None:
             raise ValueError("Row lacks quantity metrics or rates; ignoring as an active line item.")
         return self
 
