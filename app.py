@@ -1,18 +1,23 @@
 import os
-from fastapi import FastAPI, UploadFile, File, HTTPException, Query, Request
+import asyncio
+from fastapi import FastAPI, UploadFile, File, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from llama_cloud import LlamaCloud
 
-app = FastAPI(title="Textile & Material Inward & Transport Extraction Service (Webhook-Driven)")
+app = FastAPI(title="Textile & Material Inward & Transport Extraction Service")
 
 # Initialize client
-LLAMA_CLOUD_API_KEY = os.getenv(
-    "LLAMA_CLOUD_API_KEY", 
-    "llx-knaUlGzQqxYtuAe9FnOO2YrMrjP2GXvmVycN5dQOtTA49XMX"
-)
-client = LlamaCloud(api_key=LLAMA_CLOUD_API_KEY)
+# LLAMA_CLOUD_API_KEY = os.getenv(
+#     "LLAMA_CLOUD_API_KEY", 
+#     "llx-knaUlGzQqxYtuAe9FnOO2YrMrjP2GXvmVycN5dQOtTA49XMX"
+# )
+client = LlamaCloud(api_key="llx-knaUlGzQqxYtuAe9FnOO2YrMrjP2GXvmVycN5dQOtTA49XMX")
+
+# Polling configuration constants
+MAX_POLL_SECONDS = 300
+POLL_INTERVAL_SECONDS = 2.0
 
 # ==============================================================================
 # SECTION 1: DATA SCHEMAS
@@ -38,7 +43,7 @@ class TransportLineItem(BaseModel):
     charged_weight: Optional[float] = Field(default=None, description="Charged weight in KG")
 
 class TransportSlipSchema(BaseModel):
-    """Transport Slip / Lorry Receipt Schema."""
+    """Transport Slip / Lorry Receipt Schema matching Batcotrans and Nagpur Golden Transport."""
     document_title: str = Field(description="The explicit header title of the logistics provider")
     challan_no: str = Field(description="Challan No, G.R. No, or Booking reference ID")
     invoice_no: Optional[str] = Field(default=None, description="Internal reference Invoice Number linked to the slip")
@@ -54,9 +59,9 @@ class TransportSlipSchema(BaseModel):
     line_items: List[TransportLineItem]
     total_packages_count: Optional[str] = Field(default=None, description="Summary packages line label string")
     net_weight: Optional[float] = Field(default=None, description="Aggregated structural net weight value")
-    freight_charges: Optional[FreightChargesSchema] = Field(default=None, description="Broken-down logistical charges")
+    freight_charges: Optional[FreightChargesSchema] = Field(default=None, description="Broken-down logistical charges mapped out perfectly")
     total_amount: float = Field(description="Final summary evaluation balance payable")
-    handwritten_notes: Optional[List[str]] = Field(default=None, description="Any unmapped structural text or notes captured")
+    handwritten_notes: Optional[List[str]] = Field(default=None, description="Any unmapped structural text or notes captured anywhere on the slip")
 
     class Config:
         populate_by_name = True
@@ -117,8 +122,8 @@ class PackingSlipSchema(BaseModel):
 class OfferLineItem(BaseModel):
     description: str = Field(description="Item label or name (e.g., VIP, Hero, Kingfisher, Towel 'King Fisher')")
     dimension: Optional[str] = Field(default=None, description="Dimension size if present (e.g., 30x60, 36x72)")
-    quantity_bales: str = Field(description="Volume/quantity with unit (e.g., '2 Bales', '10 doz', '5 Dozen')")
-    rate_rs: Optional[float] = Field(default=None, description="Rupees column rate element or structural price value")
+    quantity_bales: str = Field(description="Volume or quantity with its unit (e.g., '2 Bales', '10 doz', '5 Dozen')")
+    rate_rs: Optional[float] = Field(default=None, description="Rupees column rate element or structural price float value")
     rate_p: Optional[float] = Field(default=0.0, description="Paise column fraction element if separated")
 
 class OfferFormSchema(BaseModel):
@@ -162,15 +167,12 @@ def _resolve_media_type(filename: str) -> str:
 # ==============================================================================
 
 @app.post("/extract")
-async def start_extraction(
+async def extract_document(
     file: UploadFile = File(...),
-    doc_type: str = Query(..., description="Schema selection: tax_invoice, packing_slip, offer_form, transport_slip"),
-    tier: str = Query(default="agentic", description="LlamaCloud engine tier: 'agentic' or 'standard'"),
-    webhook_url: str = Query(..., description="The callback URL on your server LlamaCloud will hit when parsing finishes")
+    doc_type: str = Query(..., description="Schema selection: tax_invoice, packing_slip, offer_form, transport_slip")
 ):
     """
-    Submits file to LlamaCloud. Directs LlamaCloud to forward results to your webhook endpoint 
-    automatically upon extraction completion. Returns immediately.
+    Kicks off extraction and safely polls via non-blocking async loops.
     """
     schema_cls = SCHEMA_MAP.get(doc_type)
     if schema_cls is None:
@@ -184,45 +186,41 @@ async def start_extraction(
     try:
         file_bytes = await file.read()
 
+        # Run client synchronous code inside the threadpool to protect event loop
         uploaded_file = await run_in_threadpool(
             client.files.create,
             file=(file.filename, file_bytes, media_type),
             purpose="extract",
         )
 
-        # We pass the webhook_url parameter into the configuration structure
         job = await run_in_threadpool(
             client.extract.create,
             file_input=uploaded_file.id,
             configuration={
                 "data_schema": schema_cls.model_json_schema(),
-                "tier": tier,
-                "webhook_url": webhook_url
+                "tier": "agentic",  # Essential for processing mixed details!
             },
         )
 
-        return {"job_id": job.id, "status": job.status, "message": "Extraction initiated. Callback will handle output."}
+        # Polling block with timeout logic that doesn't halt framework requests
+        elapsed = 0.0
+        while job.status not in ("COMPLETED", "FAILED", "CANCELLED"):
+            if elapsed >= MAX_POLL_SECONDS:
+                raise HTTPException(
+                    status_code=504,
+                    detail=f"Extraction job {job.id} exceeded maximum threshold of {MAX_POLL_SECONDS}s."
+                )
+            
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)  # Non-blocking async sleep
+            job = await run_in_threadpool(client.extract.get, job.id)
+            elapsed += POLL_INTERVAL_SECONDS
 
+        if job.status == "COMPLETED":
+            return job.extract_result
+        else:
+            raise HTTPException(status_code=500, detail=f"LlamaCloud task failed with status code: {job.status}")
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/webhook/receive")
-async def receive_llama_cloud_callback(request: Request):
-    """
-    This is where LlamaCloud sends the data directly, bypassing any need for polling loops.
-    """
-    payload = await request.json()
-    
-    # Extract the job validation parameters
-    job_status = payload.get("status")
-    job_id = payload.get("id")
-    extract_result = payload.get("extract_result")
-    
-    if job_status == "COMPLETED":
-        # -> EXECUTE YOUR NEXT FLOW PROCESS STAGE HERE DIRECTLY <-
-        # E.g., Save into database, notify your frontend state management, triggers internal ERP etc.
-        print(f"🎉 Job {job_id} succeeded! Received payload data structure.")
-        return {"status": "success", "processed": True}
-        
-    return {"status": "received", "processed": False}
