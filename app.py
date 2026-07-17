@@ -2,8 +2,8 @@ import os
 import asyncio
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, Field, model_validator
 from typing import List, Optional
+from pydantic import BaseModel, Field, model_validator
 from llama_cloud import LlamaCloud
 
 app = FastAPI(title="Textile & Material Inward & Transport Extraction Service")
@@ -123,44 +123,49 @@ class OfferLineItem(BaseModel):
     description: str = Field(
         description=(
             "From column 1 ('Quality / Sort No.'). "
-            "CRITICAL: If it contains ditto marks ('\"' or '“' or ',,'), you must inherit the main name from the line directly above. "
-            "Examples: Line 2 should be 'Blue Star (c)', Line 3 should be 'Blue Star (w) print', Line 4 should be 'Blue Star (c) print'."
+            "CRITICAL: Resolve ditto marks ('\"', '“', ',,') by inheriting the main parent name "
+            "from the line above while preserving row-specific modifiers. "
+            "Examples: 'Blue Star (c)', 'Blue Star (w) print', 'Blue Star (c) print', 'Diamond col'."
         )
     )
     dimension: Optional[str] = Field(
         default=None, 
         description=(
-            "From column 2 ('Width Size'). In this document, it is written as '3060' (meaning 30x60). "
-            "Resolve any ditto marks ('\"') to match the value above ('3060')."
+            "From column 2 ('Width Size'). Standardize the handwritten '3060' and its "
+            "subsequent ditto marks ('\"') to '30x60'."
         )
     )
     quantity_bales: Optional[str] = Field(
-        default=None, 
+        default="", 
+        description="From the 'Delivery' column if it specifies global packaging units like '1 Bale'."
+    )
+    quantity_pieces_meters: Optional[str] = Field(
+        default=None,
         description=(
-            "From column 3 ('Qnty Pcs.Mtr'). Read the handwritten text carefully (e.g., '10 dz' or '10 doz' meaning dozen, NOT '10 d2'). "
-            "Capture exactly what is written in column 3 here."
+            "From column 3 ('Qnty Pcs.Mtr'). Read the text carefully as dozen ('dz' or 'doz'), "
+            "NOT as 'd2'. Examples: '10 dz', '5 dz'."
         )
     )
-    rate_rs: Optional[float] = Field(default=None, description="From column 4 ('Rate'). Leave null if blank.")
-    rate_p: Optional[float] = Field(default=0.0, description="From column 4 fraction. Leave 0.0 if blank.")
+    rate_rs: Optional[float] = Field(default=None, description="From column 4 ('Rate Pcr/Mtrs/Pcs'). Leave null if blank.")
+    rate_p: Optional[float] = Field(default=0.0, description="From column 4 paisa fraction. Leave 0.0 if blank.")
 
     @model_validator(mode="after")
     def check_must_have_metrics(self) -> "OfferLineItem":
-        """ Ensures that rows acting purely as section text/notes are not grabbed as items. """
-        if not self.quantity_bales and self.rate_rs is None:
-            raise ValueError("Row only contains description metadata; ignoring as an active line item.")
+        """Ensures that rows acting purely as section text/notes are not grabbed as items."""
+        if not self.quantity_pieces_meters and self.rate_rs is None:
+            raise ValueError("Row lacks quantity metrics or rates; ignoring as an active line item.")
         return self
 
 class OfferFormSchema(BaseModel):
     """Product Request Form (Indent Sheet / Order Form)."""
-    agency_or_broker: str = Field(description="Commission agent or issuing organization (e.g., SHUKLA AGENCIES)")
+    agency_or_broker: str = Field(description="Commission agent or issuing organization (e.g., DILIP TEXTILE AGENCY)")
     indent_number: str = Field(description="Indent No., Order No., or Tracking Reference ID")
-    date: str = Field(description="Written document execution date")
-    from_party: str = Field(description="Sender / Customer Details / Purchaser")
-    to_party: str = Field(description="Target recipient / Order M/s / Supplier")
-    dispatch_instructions: Optional[str] = Field(default=None, description="Shipping route or transport guidelines")
+    date: str = Field(description="Written document execution date. Leave empty string if blank.")
+    from_party: str = Field(description="Buyer / Purchaser name and location details (e.g., Kanhaiya H/C Hasanpur)")
+    to_party: str = Field(description="Seller / Supplier details (e.g., R. Gridhan Salem)")
+    dispatch_instructions: Optional[str] = Field(default=None, description="Shipping route or destination transport guidelines (e.g., 'Destination: mata Samastipur')")
     line_items: List[OfferLineItem]
-    handwritten_notes: Optional[List[str]] = Field(default=None, description="Any loose handwritten remarks, discount clauses, or terms")
+    handwritten_notes: Optional[List[str]] = Field(default=None, description="Any statutory footnotes, loose handwritten remarks, discount clauses, or terms")
 
 
 SCHEMA_MAP = {
