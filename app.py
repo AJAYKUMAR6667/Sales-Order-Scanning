@@ -134,16 +134,15 @@ class OfferLineItem(BaseModel):
             "from the row directly above, combining it with any new explicit suffix text written on the line."
         )
     )
-    dimension: Optional[str] = Field(
-        default=None, 
+    description: str = Field(
         description=(
-            "The isolated product size configuration from the 'Width Size' column. "
-            "CRITICAL: Look closely at the FIRST row size value (e.g., '3060'). Do not drop trailing zeros "
-            "or mistake them for a single digit (e.g., '3060' must be standardized exactly as '30X60', NOT '30x6' or '3x6'). "
-            "RESOLVE DITTO MARKS & CASCADING: If subsequent rows contain ditto marks (,,), quotes (\"), or lines, "
-            "they MUST inherit the exact identical standardized size configuration from the row above (e.g., all rows "
-            "should be '30X60' if the top row is '3060'). NEVER mix columns or grab values from the Quantity column "
-            "to populate this field."
+            "From the main item column (e.g., 'Particulars', 'Description of Goods', 'Quality / Sort No.'). "
+            "CRITICAL: Keep this strictly as the clean product text name, including all immediate style, color, "
+            "or quality brackets/modifiers written next to it on the same line (e.g., 'Blue Star (w)', 'Blue Star (c)'). "
+            "DO NOT strip out quality suffixes like '(w)', '(c)', or '(w) print'. Only strip out pure numerical size configurations "
+            "if they are written inline (like '30x60'). "
+            "RESOLVE DITTO MARKS: If a row contains ditto marks ('\"', '“', ',,'), inherit the base product parent "
+            "name from the row immediately above, combining it cleanly with any explicit suffix modifiers written on the current line."
         )
     )
     quantity_bales: Optional[str] = Field(
