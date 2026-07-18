@@ -180,12 +180,21 @@ class OfferLineItem(BaseModel):
 
     rate_rs: Optional[float] = Field(
         default=None,
-        description="The base rate value before the decimal/fraction point. Leave null if blank.",
+        description=(
+            "The base rate value before the decimal/fraction point. Leave null if blank. "
+            "CRITICAL: If a printed/typed rate has been crossed out or struck through, "
+            "and a handwritten correction is written next to it, extract the HANDWRITTEN "
+            "corrected base rate (e.g., if '56.50' is crossed out and '67.50' is written, extract 67.0)."
+        ),
     )
-
     rate_p: Optional[float] = Field(
         default=0.0,
-        description="The rate fraction/paisa balance (e.g., from a split column or suffix like '.50' or '=00').",
+        description=(
+            "The rate fraction/paisa balance (e.g., from a split column or suffix like '.50' or '=00'). "
+            "CRITICAL: If a printed/typed rate has been crossed out or struck through, "
+            "and a handwritten correction is written next to it, extract the HANDWRITTEN "
+            "corrected decimal fraction (e.g., if '77.00' is crossed out and '77.50' is written, extract 50.0)."
+        ),
     )
 
     model_config = ConfigDict(populate_by_name=True)
