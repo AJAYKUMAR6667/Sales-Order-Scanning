@@ -1,23 +1,17 @@
 import os
-import asyncio
+import json
+import httpx
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query
-from fastapi.concurrency import run_in_threadpool
 from typing import List, Optional
-from pydantic import BaseModel, Field, model_validator
-from llama_cloud import LlamaCloud
+from pydantic import BaseModel, Field, model_validator, ConfigDict
 
-app = FastAPI(title="Textile & Material Inward & Transport Extraction Service")
+app = FastAPI(title="Textile & Material Inward & Transport Extraction Service Fast")
 
-# Initialize client
+# Using raw HTTP request to LlamaCloud inline API instead of the polling SDK client
 LLAMA_CLOUD_API_KEY = os.getenv(
     "LLAMA_CLOUD_API_KEY", 
     "llx-knaUlGzQqxYtuAe9FnOO2YrMrjP2GXvmVycN5dQOtTA49XMX"
 )
-client = LlamaCloud(api_key=LLAMA_CLOUD_API_KEY)
-
-# Polling configuration constants
-MAX_POLL_SECONDS = 300
-POLL_INTERVAL_SECONDS = 2.0
 
 # ==============================================================================
 # SECTION 1: DATA SCHEMAS
@@ -33,6 +27,8 @@ class FreightChargesSchema(BaseModel):
     lc: Optional[float] = Field(default=0.0, description="LC / Labor charge value")
     grc: Optional[float] = Field(default=0.0, description="GRC / Goods Receipt charge value")
     other: Optional[float] = Field(default=0.0, description="Any other miscellaneous charges listed")
+    
+    model_config = ConfigDict(populate_by_name=True)
 
 class TransportLineItem(BaseModel):
     sl_no: Optional[int] = Field(default=None, description="Serial number of the item")
@@ -41,6 +37,8 @@ class TransportLineItem(BaseModel):
     description: str = Field(description="Description of the goods (e.g., CLOTH, One Bale of HLC)")
     weight_kg: Optional[float] = Field(default=None, description="Actual weight in KG")
     charged_weight: Optional[float] = Field(default=None, description="Charged weight in KG")
+    
+    model_config = ConfigDict(populate_by_name=True)
 
 class TransportSlipSchema(BaseModel):
     """Transport Slip / Lorry Receipt Schema matching Batcotrans and Nagpur Golden Transport."""
@@ -48,7 +46,7 @@ class TransportSlipSchema(BaseModel):
     challan_no: str = Field(description="Challan No, G.R. No, or Booking reference ID")
     invoice_no: Optional[str] = Field(default=None, description="Internal reference Invoice Number linked to the slip")
     invoice_value: Optional[float] = Field(default=None, description="Declared structural value of goods")
-    date: str = Field(description="Execution or delivery date stamp")
+    date: str = Field(description="Execution or delivery date stamp. CRITICAL CORRECTION: Standardize to YYYY-MM-DD format. Ensure that any year written as shorthand '26' or '.26' is strictly mapped to the four-digit century year '2026'. Never output '0026'.")
     consignor: str = Field(description="Company profile sending out the materials")
     consignor_gst: Optional[str] = Field(default=None, description="GSTIN identifier of the sender party")
     consignee: str = Field(description="Target recipient or destination company profile")
@@ -63,8 +61,8 @@ class TransportSlipSchema(BaseModel):
     total_amount: float = Field(description="Final summary evaluation balance payable")
     handwritten_notes: Optional[List[str]] = Field(default=None, description="Any unmapped structural text or notes captured anywhere on the slip")
 
-    class Config:
-        populate_by_name = True
+    # Fixed: Replaced class Config with V2 ConfigDict
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class InvoiceLineItem(BaseModel):
@@ -78,6 +76,8 @@ class InvoiceLineItem(BaseModel):
     rate: float = Field(description="Rate per unit")
     per_unit: Optional[str] = Field(default=None, description="The unit basis for the rate (e.g., KG, pcs)")
     amount: float = Field(description="Total line item amount value")
+    
+    model_config = ConfigDict(populate_by_name=True)
 
 class TaxInvoiceSchema(BaseModel):
     """Product Inward: covers Raw Material inward AND Finished Goods inward."""
@@ -87,7 +87,7 @@ class TaxInvoiceSchema(BaseModel):
     billing_to: str = Field(description="The buyer/consignee name")
     buyer_gstin: Optional[str] = Field(default=None, description="GSTIN of the buyer")
     invoice_number: str = Field(description="Invoice No. found on the document")
-    invoice_date: str = Field(description="Date the invoice was generated")
+    invoice_date: str = Field(description="The exact issuance date found on the invoice header. CRITICAL CORRECTION: Standardize to YYYY-MM-DD format. If the document lists a two-digit year like '26' (e.g., 06-07-26 or 11.07.2026), always interpret the century as 2026. Do not ever return '0026' or '0025'.")
     po_number: Optional[str] = Field(default=None, description="PO reference")
     line_items: List[InvoiceLineItem]
     sub_total: Optional[float] = Field(default=None, description="Subtotal amount before tax")
@@ -96,6 +96,8 @@ class TaxInvoiceSchema(BaseModel):
     igst_amount: Optional[float] = Field(default=None, description="Extracted IGST tax value")
     grand_total: float = Field(description="The absolute Grand Total due")
     bank_details: Optional[str] = Field(default=None, description="Bank accounts or branch info")
+    
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class PackingLineItem(BaseModel):
@@ -105,18 +107,22 @@ class PackingLineItem(BaseModel):
     quantity: str = Field(description="Primary count/quantity packed")
     rate: Optional[float] = Field(default=None, description="Rate value if listed")
     amount: Optional[float] = Field(default=None, description="Line amount value if listed")
+    
+    model_config = ConfigDict(populate_by_name=True)
 
 class PackingSlipSchema(BaseModel):
     """Delivery Slip / Packing Slip."""
     document_title: str = Field(default="Packing Slip", description="The explicit header title")
     voucher_number: str = Field(description="Voucher No. or Packing Slip reference ID")
-    date: str = Field(description="Dated reference field")
+    date: str = Field(description="Dated reference field. CRITICAL CORRECTION: Standardize to YYYY-MM-DD format. Ensure that any year written as shorthand '26' or '.26' is strictly mapped to the four-digit century year '2026'. Never output '0026'.")
     buyer_bill_to: str = Field(description="Company billed to")
     destination: Optional[str] = Field(default=None, description="Delivery destination city")
     dispatched_through: Optional[str] = Field(default=None, description="Logistics provider name")
     line_items: List[PackingLineItem]
     total_packages_count: Optional[str] = Field(default=None, description="Aggregated total at the bottom")
     grand_total: Optional[float] = Field(default=None, description="Final evaluation balance value")
+    
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class OfferLineItem(BaseModel):
@@ -177,6 +183,8 @@ class OfferLineItem(BaseModel):
         description="The rate fraction/paisa balance (e.g., from a split column or suffix like '.50' or '=00').",
     )
 
+    model_config = ConfigDict(populate_by_name=True)
+
     @model_validator(mode="after")
     def check_must_have_metrics(self) -> "OfferLineItem":
         """Ensures that structural divider rows or bottom totals are ignored."""
@@ -201,7 +209,7 @@ class OfferFormSchema(BaseModel):
         description="Tracking identity string (e.g., Indent No., Order No., Reference Code)"
     )
     date: str = Field(
-        description="Document execution date stamp. Leave empty string if blank."
+        description="Document execution date stamp. CRITICAL CORRECTION: Standardize to YYYY-MM-DD format. Ensure that any year written as shorthand '26' or '.26' is strictly mapped to the four-digit century year '2026'. Never output '0026'."
     )
     from_party: str = Field(
         description="Buyer / Purchaser customer profile name and regional city location details"
@@ -220,6 +228,9 @@ class OfferFormSchema(BaseModel):
         default=None,
         description="Loose terms, miscellaneous structural footer text remarks, phone numbers, or discount terms (e.g., 'Cash discount 2%')",
     )
+
+    model_config = ConfigDict(populate_by_name=True)
+
 SCHEMA_MAP = {
     "tax_invoice": TaxInvoiceSchema,
     "packing_slip": PackingSlipSchema,
@@ -254,7 +265,7 @@ async def extract_document(
     doc_type: str = Query(..., description="Schema selection: tax_invoice, packing_slip, offer_form, transport_slip")
 ):
     """
-    Kicks off extraction and safely polls via non-blocking async loops.
+    Executes instant inline extraction to bypass background processing queues.
     """
     schema_cls = SCHEMA_MAP.get(doc_type)
     if schema_cls is None:
@@ -264,45 +275,31 @@ async def extract_document(
         )
 
     media_type = _resolve_media_type(file.filename)
+    file_bytes = await file.read()
 
-    try:
-        file_bytes = await file.read()
-
-        # Run client synchronous code inside the threadpool to protect event loop
-        uploaded_file = await run_in_threadpool(
-            client.files.create,
-            file=(file.filename, file_bytes, media_type),
-            purpose="extract",
-        )
-
-        job = await run_in_threadpool(
-            client.extract.create,
-            file_input=uploaded_file.id,
-            configuration={
-                "data_schema": schema_cls.model_json_schema(),
-                "tier": "agentic",  # Essential for processing mixed details!
-            },
-        )
-
-        # Polling block with timeout logic that doesn't halt framework requests
-        elapsed = 0.0
-        while job.status not in ("COMPLETED", "FAILED", "CANCELLED"):
-            if elapsed >= MAX_POLL_SECONDS:
-                raise HTTPException(
-                    status_code=504,
-                    detail=f"Extraction job {job.id} exceeded maximum threshold of {MAX_POLL_SECONDS}s."
-                )
+    # Make a direct synchronous round-trip request to LlamaCloud's inline extraction API
+    async with httpx.AsyncClient(timeout=60.0) as http_client:
+        try:
+            headers = {"Authorization": f"Bearer {LLAMA_CLOUD_API_KEY}"}
             
-            await asyncio.sleep(POLL_INTERVAL_SECONDS)  # Non-blocking async sleep
-            job = await run_in_threadpool(client.extract.get, job.id)
-            elapsed += POLL_INTERVAL_SECONDS
-
-        if job.status == "COMPLETED":
-            return job.extract_result
-        else:
-            raise HTTPException(status_code=500, detail=f"LlamaCloud task failed with status code: {job.status}")
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+            # Convert the active Pydantic code model directly to a JSON Schema string payload
+            data = {"data_schema": json.dumps(schema_cls.model_json_schema())}
+            files = {"file": (file.filename, file_bytes, media_type)}
+            
+            # Calling the /inline endpoint drops response latency down to 1-3 seconds
+            response = await http_client.post(
+                "https://api.llamacloud.com/v1/extract/inline",
+                headers=headers,
+                data=data,
+                files=files
+            )
+            
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail=response.text)
+            
+            # Extract and return the structure payload directly back to Zoho Deluge script
+            result_json = response.json()
+            return result_json.get("extract_result", result_json)
+            
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Inline execution failed: {str(e)}")
