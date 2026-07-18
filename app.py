@@ -177,23 +177,21 @@ class OfferLineItem(BaseModel):
             "counts to pieces ('pcs'). Examples: '5 d.' -> '5 dz', '10 d2' -> '10 dz', '720.00' -> '720 pcs'."
         )
     )
-
     rate_rs: Optional[float] = Field(
         default=None,
         description=(
-            "The base rate value before the decimal/fraction point. Leave null if blank. "
-            "CRITICAL: If a printed/typed rate has been crossed out or struck through, "
-            "and a handwritten correction is written next to it, extract the HANDWRITTEN "
-            "corrected base rate (e.g., if '56.50' is crossed out and '67.50' is written, extract 67.0)."
+            "The base rate value before the decimal point. Leave null if blank. "
+            "CRITICAL SPATIAL RULE: Check immediately to the LEFT of the main 'PRICE' column grid (spilling into the 'PARTICULARS' column area). "
+            "If a handwritten number like '67.50' or '77.50' is penned to the left of a crossed-out printed value, "
+            "you MUST extract the handwritten integer (e.g., 67.50 or 77.50) instead of the typed, struck-through numbers."
         ),
     )
     rate_p: Optional[float] = Field(
         default=0.0,
         description=(
-            "The rate fraction/paisa balance (e.g., from a split column or suffix like '.50' or '=00'). "
-            "CRITICAL: If a printed/typed rate has been crossed out or struck through, "
-            "and a handwritten correction is written next to it, extract the HANDWRITTEN "
-            "corrected decimal fraction (e.g., if '77.00' is crossed out and '77.50' is written, extract 50.0)."
+            "The rate fraction/paisa balance. "
+            "CRITICAL SPATIAL RULE: Look strictly at the handwritten adjustments written to the left of the struck-out column rates. "
+            "Extract the fractional paisa part from the handwritten correction (e.g., for '67.50' or '77.50', extract 50.0)."
         ),
     )
 
