@@ -5,9 +5,16 @@ from fastapi.concurrency import run_in_threadpool
 from typing import List, Optional
 from pydantic import BaseModel, Field, ConfigDict
 from llama_cloud import LlamaCloud
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="Textile & Material Sales Order Extraction Service")
-
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # For development
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 # Initialize the official client SDK
 LLAMA_CLOUD_API_KEY = os.getenv(
     "LLAMA_CLOUD_API_KEY", 
