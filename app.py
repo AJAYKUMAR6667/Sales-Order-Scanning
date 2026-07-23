@@ -133,7 +133,17 @@ async def extract_sales_order(payload: Base64UploadSchema):
             elapsed += POLL_INTERVAL_SECONDS
 
         if job.status == "COMPLETED":
-            return job.extract_result
+            # ==================================================================
+            # FIX: Safely dig out the parsed dictionary payload so FastAPI can serialize it
+            # ==================================================================
+            if hasattr(job, "extract_result") and job.extract_result:
+                # Return the data dictionary mapped via your Pydantic schema
+                return getattr(job.extract_result, "data", job.extract_result)
+            
+            raise HTTPException(
+                status_code=500, 
+                detail="Job completed, but extraction result structural payload was empty."
+            )
         else:
             raise HTTPException(
                 status_code=500, 
@@ -143,4 +153,6 @@ async def extract_sales_order(payload: Base64UploadSchema):
     except HTTPException:
         raise
     except Exception as e:
+        # Prints the real under-the-hood trace to your Render/terminal logs
+        print(f"CRITICAL RUNTIME ERROR TRACE: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Extraction runtime exception: {str(e)}")
