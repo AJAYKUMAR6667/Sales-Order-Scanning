@@ -1,5 +1,6 @@
 import os
 import asyncio
+import base64
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from typing import List, Optional
@@ -15,6 +16,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 # Initialize the official client SDK
 LLAMA_CLOUD_API_KEY = os.getenv(
     "LLAMA_CLOUD_API_KEY", 
@@ -57,6 +59,11 @@ class SalesOrderSchema(BaseModel):
     
     model_config = ConfigDict(populate_by_name=True)
 
+# FIX: Moved out of SalesOrderSchema context and fixed field indentations
+class Base64UploadSchema(BaseModel):
+    filename: str
+    file_data: str
+
 # ==============================================================================
 # SECTION 2: UTILITIES
 # ==============================================================================
@@ -79,22 +86,30 @@ def _resolve_media_type(filename: str) -> str:
 # ==============================================================================
 
 @app.post("/extract")
-async def extract_sales_order(file: UploadFile = File(...)):
+async def extract_sales_order(payload: Base64UploadSchema):
     """
-    Submits a Sales Order document to LlamaIndex production and runs a sub-second optimized polling engine.
+    Submits a Base64-encoded Sales Order document to LlamaIndex production.
     """
-    media_type = _resolve_media_type(file.filename)
-    file_bytes = await file.read()
+    media_type = _resolve_media_type(payload.filename)
+    
+    try:
+        # Decode the incoming string data back into raw binary bytes
+        file_bytes = base64.b64decode(payload.file_data)
+    except Exception:
+        raise HTTPException(
+            status_code=400, 
+            detail="Failed to process document string. Invalid Base64 data."
+        )
 
     try:
-        # 1. Upload binary data using the native SDK
+        # 1. Upload binary data to LlamaCloud using the native SDK
         uploaded_file = await run_in_threadpool(
             client.files.create,
-            file=(file.filename, file_bytes, media_type),
+            file=(payload.filename, file_bytes, media_type),
             purpose="extract",
         )
 
-        # 2. Spawn extraction using the dedicated SalesOrderSchema
+        # 2. Spawn extraction using your SalesOrderSchema
         job = await run_in_threadpool(
             client.extract.create,
             file_input=uploaded_file.id,
@@ -104,13 +119,13 @@ async def extract_sales_order(file: UploadFile = File(...)):
             },
         )
 
-        # 3. Fast high-frequency polling loop targeting the API infrastructure
+        # 3. High-frequency polling loop
         elapsed = 0.0
         while job.status not in ("COMPLETED", "FAILED", "CANCELLED"):
             if elapsed >= MAX_POLL_SECONDS:
                 raise HTTPException(
                     status_code=504,
-                    detail=f"Sales Order extraction job {job.id} timed out after {MAX_POLL_SECONDS}s."
+                    detail=f"Sales Order extraction job {job.id} timed out."
                 )
             
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
